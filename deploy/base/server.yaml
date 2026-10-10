@@ -1,0 +1,108 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: job-manage-config
+  namespace: job-manage
+data:
+  JOB_AUTH_MODE: proxy
+  JOB_BASE_PATH: /jobs
+  JOB_BIND: 0.0.0.0:8080
+  JOB_WEB_DIR: /app/web
+  JOB_STORAGE_DIR: /data
+  JOB_S3_ENDPOINT: https://rustfs.example.invalid
+  JOB_S3_BUCKET: job-manage
+  JOB_S3_REGION: us-east-1
+  JOB_HEARTBEAT_TIMEOUT_SECONDS: "30"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-server
+  namespace: job-manage
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: job-server
+  template:
+    metadata:
+      labels:
+        app: job-server
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: server
+          image: ghcr.io/uiui611/job-manage-server:main
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: job-manage-config
+            - secretRef:
+                name: job-manage-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: temp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: temp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: data
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: job-server
+  namespace: job-manage
+spec:
+  selector:
+    app: job-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  type: ClusterIP

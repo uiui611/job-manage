@@ -1,0 +1,61 @@
+# Create ConfigMap first:
+# kubectl -n job-manage create configmap job-manage-tests --from-file=smoke.py=tests/smoke.py
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-manage-smoke
+  namespace: job-manage
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: job-manage-smoke
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: smoke
+          image: ghcr.io/uiui611/job-manage-worker:main
+          imagePullPolicy: Always
+          command: [python3, -u, /tests/smoke.py]
+          env:
+            - name: JOB_TEST_URL
+              value: http://job-server:8080/jobs
+            - name: JOB_TEST_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: job-manage-secrets
+                  key: JOB_API_TOKEN
+            - name: JOB_TEST_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: job-manage-secrets
+                  key: JOB_WORKER_TOKEN
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: "1"
+              memory: 128Mi
+          volumeMounts:
+            - name: tests
+              mountPath: /tests
+              readOnly: true
+      volumes:
+        - name: tests
+          configMap:
+            name: job-manage-tests

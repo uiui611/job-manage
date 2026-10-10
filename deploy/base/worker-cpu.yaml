@@ -1,0 +1,73 @@
+# Optional smoke-test worker. This deployment has no GPU device access.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-worker-cpu
+  namespace: job-manage
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: job-worker-cpu
+  template:
+    metadata:
+      labels:
+        app: job-worker-cpu
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: ghcr.io/uiui611/job-manage-worker:main
+          imagePullPolicy: Always
+          env:
+            - name: JOB_SERVER_URL
+              value: http://job-server:8080/jobs
+            - name: JOB_ALLOW_INSECURE_HTTP
+              value: "true"
+            - name: JOB_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: job-manage-secrets
+                  key: JOB_WORKER_TOKEN
+            - name: JOB_WORKER_ID
+              value: kubernetes-cpu
+            - name: JOB_WORKER_NAME
+              value: Kubernetes CPU smoke worker
+            - name: JOB_WORKER_TAGS
+              value: '["os=linux","arch=amd64","env=base"]'
+            - name: JOB_WORK_DIR
+              value: /work
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: temp
+              mountPath: /tmp
+            - name: work
+              mountPath: /work
+      volumes:
+        - name: temp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: work
+          emptyDir:
+            sizeLimit: 2Gi

@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+FROM rust:bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS rust-build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ ./crates/
+COPY docs/ ./docs/
+ENV CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=/build-target
+RUN --mount=type=cache,id=job-platform-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=job-platform-target,target=/build-target \
+    cargo build --release --locked --workspace \
+    && mkdir -p /out \
+    && cp /build-target/release/job-server /build-target/release/job-worker /out/
+
+FROM node:24-bookworm-slim
+LABEL org.opencontainers.image.source="https://github.com/uiui611/job-manage" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.title="Job Manage worker"
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 job && useradd --uid 10001 --gid job --no-create-home job \
+    && mkdir -p /work && chown job:job /work
+COPY --from=rust-build /out/job-worker /usr/local/bin/job-worker
+COPY LICENSE /usr/share/doc/job-manage/LICENSE
+ENV JOB_WORK_DIR=/work PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /work
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/job-worker"]

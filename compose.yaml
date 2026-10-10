@@ -1,0 +1,75 @@
+name: job-manage
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: job_manage
+      POSTGRES_USER: job
+      POSTGRES_PASSWORD: local-compose-only
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U job -d job_manage]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  server:
+    image: ghcr.io/uiui611/job-manage-server:${JOB_IMAGE_TAG:-main}
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      JOB_DATABASE_URL: postgres://job:local-compose-only@postgres:5432/job_manage
+      JOB_API_TOKEN: ${JOB_API_TOKEN:?Set JOB_API_TOKEN in .env}
+      JOB_WORKER_TOKEN: ${JOB_WORKER_TOKEN:?Set JOB_WORKER_TOKEN in .env}
+      JOB_AUTH_MODE: ${JOB_AUTH_MODE:-none}
+      JOB_PROXY_TOKEN: ${JOB_PROXY_TOKEN:-}
+      JOB_BASE_PATH: ${JOB_BASE_PATH:-/jobs}
+      JOB_BIND: 0.0.0.0:8080
+      JOB_STORAGE_DIR: /data
+      JOB_WEB_DIR: /app/web
+    ports:
+      - 127.0.0.1:8080:8080
+    volumes:
+      - artifacts:/data
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  worker:
+    image: ghcr.io/uiui611/job-manage-worker:${JOB_IMAGE_TAG:-main}
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    depends_on: [server]
+    environment:
+      JOB_SERVER_URL: http://server:8080${JOB_BASE_PATH:-/jobs}
+      JOB_ALLOW_INSECURE_HTTP: "true"
+      JOB_WORKER_TOKEN: ${JOB_WORKER_TOKEN:?Set JOB_WORKER_TOKEN in .env}
+      JOB_WORKER_ID: compose-cpu
+      JOB_WORKER_NAME: Compose CPU worker
+      JOB_WORKER_TAGS: '["os=linux","arch=amd64","env=base"]'
+      JOB_WORK_DIR: /work
+    volumes:
+      - worker-work:/work
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
+    init: true
+    stop_grace_period: 20s
+    restart: unless-stopped
+volumes:
+  database:
+  artifacts:
+  worker-work:

@@ -1,0 +1,40 @@
+# Include inside a TLS-enabled server {} already protected by your authentication layer.
+# Replace the placeholder with JOB_PROXY_TOKEN via your secret-management mechanism.
+# Never forward a caller-supplied X-Job-Proxy-Token unchanged.
+location = /jobs {
+    return 308 /jobs/;
+}
+# Worker authentication is performed by the application's worker Bearer token.
+location = /jobs/worker {
+    auth_request off;
+    auth_basic off;
+    proxy_pass http://job-server.job-manage.svc.cluster.local:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header X-Job-Proxy-Token "";
+    proxy_read_timeout 90s;
+    proxy_send_timeout 90s;
+}
+# Local-storage signed transfers are authenticated by the application signature.
+# Browser uploads intentionally omit cookies; workers also have no login cookie.
+location ^~ /jobs/api/v1/blobs/ {
+    auth_request off;
+    auth_basic off;
+    proxy_pass http://job-server.job-manage.svc.cluster.local:8080;
+    proxy_set_header X-Job-Proxy-Token "";
+    client_max_body_size 64m;
+}
+location /jobs/ {
+    proxy_pass http://job-server.job-manage.svc.cluster.local:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Job-Proxy-Token "REPLACE_WITH_PROXY_SECRET";
+    proxy_read_timeout 90s;
+    proxy_send_timeout 90s;
+    client_max_body_size 64m;
+}
