@@ -60,6 +60,8 @@ S3 設定を使う場合は、アプリ専用の非公開バケットとアク�
 
 ## ワーカー設定
 
+Windows で直接実行する場合は [Windows ワーカーの手順](windows-worker.md) を参照してください。設定・プロトコルは共通で、Node/Python を環境から提供します。
+
 | 環境変数 | 設定内容 |
 | --- | --- |
 | `JOB_SERVER_URL` | ベースパスを含む例 `https://jobs.example.invalid/jobs` |

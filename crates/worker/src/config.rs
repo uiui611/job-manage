@@ -53,6 +53,12 @@ impl Config {
             "PATH".into(),
             env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".into()),
         );
+        #[cfg(windows)]
+        for key in ["SystemRoot", "SystemDrive", "WINDIR", "PATHEXT"] {
+            if let Ok(value) = env::var(key) {
+                runtime_env.insert(key.into(), value);
+            }
+        }
         for key in [
             "LD_LIBRARY_PATH",
             "CUDA_VISIBLE_DEVICES",
@@ -72,7 +78,7 @@ impl Config {
                 .filter(|key| !key.is_empty())
             {
                 ensure!(
-                    !key.starts_with("JOB_")
+                    !key.to_ascii_uppercase().starts_with("JOB_")
                         && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
                     "runtime environment allowlist contains a forbidden name"
                 );
@@ -86,9 +92,11 @@ impl Config {
             name,
             worker_id,
             tags,
-            work_dir: PathBuf::from(env::var("JOB_WORK_DIR").unwrap_or_else(|_| "/work".into())),
+            work_dir: env::var_os("JOB_WORK_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(default_work_dir),
             node_path: env::var("JOB_NODE_PATH").unwrap_or_else(|_| "node".into()),
-            python_path: env::var("JOB_PYTHON_PATH").unwrap_or_else(|_| "python3".into()),
+            python_path: env::var("JOB_PYTHON_PATH").unwrap_or_else(|_| default_python().into()),
             runtime_env,
             server_url,
             allow_http,
@@ -116,6 +124,25 @@ impl Config {
         };
         check_url(&url, self.allow_http)?;
         Ok(url)
+    }
+}
+
+fn default_python() -> &'static str {
+    if cfg!(windows) { "python" } else { "python3" }
+}
+
+fn default_work_dir() -> PathBuf {
+    #[cfg(windows)]
+    {
+        env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(env::temp_dir)
+            .join("JobManage")
+            .join("work")
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/work")
     }
 }
 
@@ -148,11 +175,22 @@ pub fn test_config(path: PathBuf) -> Config {
         tags: vec![],
         work_dir: path,
         node_path: "node".into(),
-        python_path: "python3".into(),
-        runtime_env: BTreeMap::from([("PATH".into(), "/usr/local/bin:/usr/bin:/bin".into())]),
+        python_path: env::var("JOB_TEST_PYTHON").unwrap_or_else(|_| default_python().into()),
+        runtime_env: test_runtime_env(),
         allow_http: false,
         ca_cert_file: None,
     }
+}
+
+#[cfg(test)]
+fn test_runtime_env() -> BTreeMap<String, String> {
+    let mut values = BTreeMap::new();
+    for key in ["PATH", "SystemRoot", "SystemDrive", "WINDIR", "PATHEXT"] {
+        if let Ok(value) = env::var(key) {
+            values.insert(key.into(), value);
+        }
+    }
+    values
 }
 
 #[cfg(test)]

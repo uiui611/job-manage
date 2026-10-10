@@ -1,4 +1,5 @@
 mod config;
+mod process;
 mod runner;
 mod tls;
 
@@ -31,6 +32,20 @@ struct ActiveAttempt {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    match std::env::args().skip(1).collect::<Vec<_>>().as_slice() {
+        [] => {}
+        [arg] if arg == "--version" => {
+            println!("job-worker {VERSION}");
+            return Ok(());
+        }
+        [arg] if arg == "--help" || arg == "-h" => {
+            println!(
+                "job-worker {VERSION}\n\nRuns Node.js/Python JOBs using installed runtimes.\nConfigure JOB_SERVER_URL, JOB_WORKER_TOKEN and JOB_WORKER_ID via environment.\nOptional: JOB_NODE_PATH, JOB_PYTHON_PATH, JOB_WORK_DIR, JOB_WORKER_TAGS, JOB_CA_CERT_FILE.\nStop with Ctrl+C. See docs/windows-worker.md for Windows setup."
+            );
+            return Ok(());
+        }
+        _ => bail!("unknown argument; use --help"),
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -38,9 +53,10 @@ async fn main() -> Result<()> {
         )
         .init();
     ensure!(
-        cfg!(target_os = "linux"),
-        "this first worker release requires Linux; Windows process isolation is not implemented"
+        cfg!(any(target_os = "linux", target_os = "windows")),
+        "the worker supports Linux and Windows"
     );
+    process::initialize_worker()?;
     let mut config = Config::from_env()?;
     // Load additional trust once and fail before connecting if it is invalid.
     let transport = tls::Transport::new(config.ca_cert_file.as_deref())?;
@@ -331,7 +347,7 @@ async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, any(target_os = "linux", windows)))]
 mod tests {
     use super::*;
     use job_protocol::{Assignment, DefinitionSpec};
@@ -346,7 +362,7 @@ mod tests {
         config.server_url = format!("http://{address}/jobs").parse().unwrap();
         config.allow_http = true;
         let script = format!(
-            "import subprocess,pathlib,time\np=subprocess.Popen(['python3','-c','import time; time.sleep(60)'])\npathlib.Path({:?}).write_text(str(p.pid))\ntime.sleep(60)\n",
+            "import subprocess,pathlib,time,sys\np=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\npathlib.Path({:?}).write_text(str(p.pid))\ntime.sleep(60)\n",
             pid_file.to_str().unwrap(),
         );
         let assignment = Assignment {
@@ -420,22 +436,14 @@ mod tests {
         if silent {
             assert!(began.elapsed() < Duration::from_secs(8));
         }
-        let pid: i32 = tokio::fs::read_to_string(&pid_file)
+        let pid: u32 = tokio::fs::read_to_string(&pid_file)
             .await
             .unwrap()
             .parse()
             .unwrap();
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
-                let state = tokio::fs::read_to_string(format!("/proc/{pid}/stat"))
-                    .await
-                    .unwrap_or_default();
-                if state.is_empty()
-                    || state
-                        .split(") ")
-                        .nth(1)
-                        .is_some_and(|tail| tail.starts_with('Z'))
-                {
+                if !process::is_alive(pid) {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;
