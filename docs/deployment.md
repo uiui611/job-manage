@@ -40,7 +40,7 @@ docker build -f Dockerfile.worker -t ghcr.io/uiui611/job-manage-worker:local .
 
 DB 接続先には例えば `postgres.example.invalid:5432`、S3 接続先には `https://rustfs.example.invalid` を実際の接続先に置き換えて指定します。接続文字列・トークン・署名鍵は Secret 管理機構から渡し、Git に保存しません。
 
-S3 設定を使う場合は、アプリ専用バケットとアクセス資格情報を事前に作成します。署名付き URL の endpoint はワーカー・API 利用アプリ・成果物を開くブラウザーから到達可能にします。クラスタ外のワーカーを使う場合は `JOB_S3_PUBLIC_ENDPOINT` に外部 HTTPS URL を設定します。署名後にホスト名やパスを差し替えてはいけません。
+S3 設定を使う場合は、アプリ専用の非公開バケットとアクセス資格情報を事前に作成します。署名付き URL の endpoint はワーカー・API 利用アプリ・成果物を開くブラウザーから到達可能にします。`JOB_S3_PUBLIC_ENDPOINT` には `https://storage.example.invalid` のようにホストのルートを指定し、`/s3` などの前置パスやバケット名を含めません。バケット名はアプリが URL に追加します。プロキシは署名対象の Host・パス・query をそのまま転送し、署名後に差し替えてはいけません。クラスタ内のワーカーもこの公開 endpoint を使用するため、DNS・HTTPS の到達性と証明書の信頼を確認してください。
 
 ブラウザーから S3 に直接アップロードする場合は、バケットの CORS に管理画面の origin を許可します。S3 API の `PutBucketCors` に渡す例です。`AllowedOrigins` は実際の管理画面に限定してください。
 
@@ -49,8 +49,8 @@ S3 設定を使う場合は、アプリ専用バケットとアクセス資格�
   "CORSRules": [{
     "AllowedOrigins": ["https://jobs.example.invalid"],
     "AllowedMethods": ["GET", "PUT", "HEAD"],
-    "AllowedHeaders": ["*"],
-    "ExposeHeaders": ["ETag"],
+    "AllowedHeaders": ["content-type"],
+    "ExposeHeaders": ["ETag", "Content-Length"],
     "MaxAgeSeconds": 3600
   }]
 }
@@ -70,9 +70,16 @@ S3 設定を使う場合は、アプリ専用バケットとアクセス資格�
 | `JOB_WORK_DIR` | コンテナでは `/work`。書き込み可能な領域 |
 | `JOB_NODE_PATH` / `JOB_PYTHON_PATH` | 既定 `node` / `python3` |
 | `JOB_ALLOW_INSECURE_HTTP` | 開発環境で HTTP 接続を使う場合のみ `true` |
+| `JOB_CA_CERT_FILE` | 任意。HTTPS ファイル転送と WSS の両方で追加信頼する CA 証明書の PEM ファイル |
 | `JOB_RUNTIME_ENV_ALLOWLIST` | スクリプトに渡す追加環境変数名をカンマ区切りで指定。`JOB_` 始まりは禁止 |
 
 `JOB_ALLOW_INSECURE_HTTP` は TLS 証明書検証を無効にする設定ではありません。基本の PATH/HOME/TMPDIR/LANG と実行契約用変数のほか、GPU 用の `LD_LIBRARY_PATH`、`CUDA_VISIBLE_DEVICES`、`NVIDIA_VISIBLE_DEVICES`、`NVIDIA_DRIVER_CAPABILITIES`、`ROCR_VISIBLE_DEVICES`、`HIP_VISIBLE_DEVICES` を子プロセスへ渡せます。接続トークンや不要な親環境変数は渡しません。
+
+プライベート CA を使う場合は、その公開証明書だけを read-only でマウントし、`JOB_CA_CERT_FILE=/etc/job-manage/ca.pem` を指定します。複数 CA を含む PEM bundle も使用できます。標準の信頼済み CA とホスト名検証は維持されます。ファイルは起動時に読み込み、読めない・証明書がない・不正な場合や1 MiBを超える場合は起動を中止します。証明書変更後はワーカーを再起動してください。CA の秘密鍵をマウントしたり、証明書をリポジトリへ追加したりする必要はありません。この設定は JOB の子プロセスに渡されず、スクリプト内で行う HTTPS 通信の信頼設定は別です。
+
+Docker では `--mount type=bind,src=/secure/path/ca.pem,dst=/etc/job-manage/ca.pem,readonly` と `-e JOB_CA_CERT_FILE=/etc/job-manage/ca.pem` を追加します。Kubernetes では CA の公開証明書を ConfigMap などから read-only でマウントし、同じ環境変数を設定します。既定の非 root UID 10001 で読める権限にしてください。
+
+この設定は接続先サーバーの証明書を信頼するためのもので、mTLS のクライアント証明書を設定するものではありません。
 
 GPU ドライバや推論ライブラリはホスト/GPU ごとに選び、派生イメージへ固定してください。ワーカーの登録タグは、確認済みの実行環境を表すものにします。
 

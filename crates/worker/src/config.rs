@@ -18,6 +18,7 @@ pub struct Config {
     pub python_path: String,
     pub runtime_env: BTreeMap<String, String>,
     pub allow_http: bool,
+    pub ca_cert_file: Option<PathBuf>,
 }
 
 impl Config {
@@ -91,6 +92,7 @@ impl Config {
             runtime_env,
             server_url,
             allow_http,
+            ca_cert_file: env::var_os("JOB_CA_CERT_FILE").map(PathBuf::from),
         })
     }
 
@@ -149,6 +151,7 @@ pub fn test_config(path: PathBuf) -> Config {
         python_path: "python3".into(),
         runtime_env: BTreeMap::from([("PATH".into(), "/usr/local/bin:/usr/bin:/bin".into())]),
         allow_http: false,
+        ca_cert_file: None,
     }
 }
 

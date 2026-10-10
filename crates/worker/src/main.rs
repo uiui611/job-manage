@@ -1,5 +1,6 @@
 mod config;
 mod runner;
+mod tls;
 
 use anyhow::{Context, Result, bail, ensure};
 use config::Config;
@@ -41,6 +42,8 @@ async fn main() -> Result<()> {
         "this first worker release requires Linux; Windows process isolation is not implemented"
     );
     let mut config = Config::from_env()?;
+    // Load additional trust once and fail before connecting if it is invalid.
+    let transport = tls::Transport::new(config.ca_cert_file.as_deref())?;
     tokio::fs::create_dir_all(&config.work_dir)
         .await
         .context("cannot create JOB_WORK_DIR")?;
@@ -53,12 +56,6 @@ async fn main() -> Result<()> {
         "no working Node or Python runtime found"
     );
     let config = Arc::new(config);
-    let http = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(300))
-        .build()
-        .context("cannot initialize HTTPS client")?;
     let shutdown = CancellationToken::new();
     let signal_cancel = shutdown.clone();
     tokio::spawn(async move {
@@ -71,7 +68,8 @@ async fn main() -> Result<()> {
         let began = Instant::now();
         let result = run_session(
             config.clone(),
-            http.clone(),
+            transport.http.clone(),
+            transport.websocket.clone(),
             drivers.clone(),
             shutdown.clone(),
         )
@@ -99,6 +97,7 @@ async fn main() -> Result<()> {
 async fn run_session(
     config: Arc<Config>,
     http: reqwest::Client,
+    connector: Option<tokio_tungstenite::Connector>,
     drivers: Vec<Driver>,
     shutdown: CancellationToken,
 ) -> Result<()> {
@@ -119,7 +118,7 @@ async fn run_session(
     let (mut socket, _) = tokio::select! {
         _ = shutdown.cancelled() => return Ok(()),
         connected = tokio::time::timeout(Duration::from_secs(15),
-            tokio_tungstenite::connect_async_with_config(request, Some(websocket_config), false)) => {
+            tokio_tungstenite::connect_async_tls_with_config(request, Some(websocket_config), false, connector)) => {
             connected.context("server connection timed out")?.context("cannot connect to server")?
         },
     };
@@ -410,6 +409,7 @@ mod tests {
             run_session(
                 Arc::new(config),
                 reqwest::Client::new(),
+                None,
                 vec![Driver::Python],
                 CancellationToken::new(),
             ),

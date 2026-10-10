@@ -18,6 +18,7 @@ Windows process-tree termination and isolation have been implemented.
 | `JOB_NODE_PATH` | `node`. Node executable, preferably an absolute path if customized. |
 | `JOB_PYTHON_PATH` | `python3`. Python executable, preferably an absolute path if customized. |
 | `JOB_ALLOW_INSECURE_HTTP` | `false`. Only literal `true` permits development HTTP/WS. TLS certificate checks remain enabled for HTTPS/WSS. |
+| `JOB_CA_CERT_FILE` | Optional path to a PEM bundle of additional trusted CA certificates for both HTTPS file transfers and WSS. Standard roots and hostname verification remain enabled. |
 | `JOB_RUNTIME_ENV_ALLOWLIST` | Optional comma-separated extra environment variable names to pass to scripts. Names beginning with `JOB_` are forbidden. |
 
 Runtime availability is probed with `--version`. At least one runtime must work.
@@ -28,6 +29,15 @@ GPU settings are also copied when present: `LD_LIBRARY_PATH`,
 `ROCR_VISIBLE_DEVICES`, and `HIP_VISIBLE_DEVICES`. Other application-specific
 settings require the explicit allowlist. The agent's authentication variables
 are never inherited by its child process.
+
+For a private CA, mount its public certificate bundle read-only and set
+`JOB_CA_CERT_FILE=/etc/job-manage/ca.pem`. This trusts server certificates; it is
+not a mutual-TLS client certificate setting. Do not mount the CA private key. The
+file is read once at startup, must contain at least one valid PEM certificate,
+and must be no larger than 1 MiB. An unreadable, empty or invalid bundle fails
+startup instead of falling back to an insecure connection. Restart the worker
+after changing the bundle. This setting is not passed to job scripts and does
+not configure TLS clients inside those scripts.
 
 ## Script contract
 
@@ -77,3 +87,7 @@ actual GPU vendor and runtime; tags do not measure available VRAM.
 Linux worker tests require `python3`. They cover whole-process-group cancellation,
 timeout, WebSocket disconnection and a server that stops responding, as well as
 bounded logs, result size, symlink rejection and transfer URL validation.
+TLS tests generate temporary certificates at runtime and verify HTTPS and WSS
+trust, rejection without the extra CA, hostname checks, standard root retention,
+and invalid CA configuration. No deployment certificates or private keys are
+included in the repository.
