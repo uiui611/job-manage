@@ -157,7 +157,10 @@ pub async fn run_attempt(
     if let Err(error) = remove_workspace(&workspace).await
         && error.kind() != std::io::ErrorKind::NotFound
     {
-        tracing::warn!("could not remove an attempt workspace");
+        tracing::warn!(
+            os_error = error.raw_os_error(),
+            "could not remove an attempt workspace"
+        );
     }
     report
 }
@@ -518,12 +521,17 @@ async fn remove_workspace(path: &Path) -> std::io::Result<()> {
     for _ in 0..40 {
         // Job termination is asynchronous; let killed processes release file handles.
         match fs::remove_dir_all(path).await {
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::DirectoryNotEmpty
-                ) =>
-            {
+            Err(error) if matches!(error.raw_os_error(), Some(5 | 16 | 32 | 33 | 145 | 303)) => {
+                // Access denied, current directory, sharing/lock violation, directory
+                // not empty, or delete pending can occur while Windows releases handles.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // A child entry disappearing during deletion need not mean the UUID
+                // workspace itself has disappeared. Retry only that same owned directory.
+                if fs::symlink_metadata(path).await.is_err() {
+                    return Err(error);
+                }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
             result => return result,
