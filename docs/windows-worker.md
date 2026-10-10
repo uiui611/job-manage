@@ -30,7 +30,7 @@ $env:JOB_WORKER_TAGS = '["os=windows","env=base"]'
 .\job-worker.exe
 ```
 
-既定では PATH 上の `node` と `python` を使います。`--version` が成功したランタイムだけを申告し、片方だけでも起動できます。両方使えない場合は接続を開始せず終了します。Microsoft Store の実行エイリアスで Python のインストール画面が開く場合や、複数の Python を使い分ける場合は、実際の実行ファイルを指定してください。
+既定では PATH 上の `node` と `python` を使います。短い確認用スクリプトが正常に実行され、期待する出力が得られたランタイムだけを申告します。片方だけでも起動でき、両方使えない場合は接続を開始せず終了します。Microsoft Store の実行エイリアスで Python のインストール画面が開く場合や、複数の Python を使い分ける場合は、実際の実行ファイルを指定してください。
 
 ```powershell
 $env:JOB_NODE_PATH = 'C:\Runtimes\node\node.exe'

@@ -21,7 +21,9 @@ for process-tree lifetime control. See [Windows setup](../../docs/windows-worker
 | `JOB_CA_CERT_FILE` | Optional path to a PEM bundle of additional trusted CA certificates for both HTTPS file transfers and WSS. Standard roots and hostname verification remain enabled. |
 | `JOB_RUNTIME_ENV_ALLOWLIST` | Optional comma-separated extra environment variable names to pass to scripts. Names beginning with `JOB_` are forbidden. |
 
-Runtime availability is probed with `--version`. At least one runtime must work.
+Runtime availability is probed by executing a short marker script with a timeout.
+Only a successful exit and exact marker output register a driver, so a Windows
+installation alias or unrelated executable is not accepted. At least one runtime must work.
 Scripts receive a cleared environment containing `PATH`, per-attempt `HOME` and
 `TMPDIR`, `LANG=C.UTF-8`, `PYTHONUNBUFFERED=1`, and the job path variables below.
 GPU settings are also copied when present: `LD_LIBRARY_PATH`,

@@ -86,19 +86,40 @@ pub async fn probe_drivers(config: &Config) -> Vec<Driver> {
     ] {
         let mut command = Command::new(runtime);
         command
-            .arg("--version")
+            .args(match driver {
+                Driver::Node => ["--eval", "process.stdout.write('job-runtime-probe')"],
+                Driver::Python => ["-c", "print('job-runtime-probe', end='')"],
+            })
             .env_clear()
             .envs(&config.runtime_env)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true);
         if let Ok((mut child, group)) = ProcessTree::spawn(&mut command) {
-            if matches!(tokio::time::timeout(Duration::from_secs(5), child.wait()).await, Ok(Ok(status)) if status.success())
-            {
+            let Some(stdout) = child.stdout.take() else {
+                continue;
+            };
+            let probe = async {
+                let wait = async {
+                    let status = child.wait().await;
+                    drop(group);
+                    status
+                };
+                let read = async {
+                    let mut bytes = Vec::new();
+                    stdout.take(64).read_to_end(&mut bytes).await?;
+                    Ok::<_, std::io::Error>(bytes)
+                };
+                let (status, output) = tokio::join!(wait, read);
+                Ok::<_, std::io::Error>(status?.success() && output? == b"job-runtime-probe")
+            };
+            if matches!(
+                tokio::time::timeout(Duration::from_secs(5), probe).await,
+                Ok(Ok(true))
+            ) {
                 drivers.push(driver);
             }
-            drop(group);
         }
     }
     drivers
@@ -573,7 +594,7 @@ mod tests {
     async fn process_tree_case(cancel_early: bool) {
         let temporary = tempfile::tempdir().unwrap();
         let pid_file = temporary.path().join("child.pid");
-        let mut config = test_config(temporary.path().to_path_buf());
+        let config = test_config(temporary.path().to_path_buf());
         let (log_tx, _) = mpsc::channel(2);
         let (upload_tx, _) = mpsc::channel(2);
         let context = RunContext {
@@ -730,6 +751,19 @@ mod tests {
             .to_string_lossy()
             .into_owned();
         assert_eq!(probe_drivers(&config).await, vec![Driver::Python]);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn successful_non_runtime_executable_is_not_registered() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut config = test_config(temporary.path().to_path_buf());
+        let executable = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join("System32")
+            .join("hostname.exe");
+        config.node_path = executable.to_string_lossy().into_owned();
+        config.python_path = config.node_path.clone();
+        assert!(probe_drivers(&config).await.is_empty());
     }
 
     #[cfg(windows)]
