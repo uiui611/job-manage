@@ -205,7 +205,9 @@ async fn execute(
         .context("cannot write JOB script")?;
     let mut command = Command::new(runtime);
     command
-        .arg(&script)
+        // Launch within the workspace: Node's entry-point resolver rejects some
+        // Windows verbatim absolute paths returned by canonicalize.
+        .arg(script_name)
         .current_dir(workspace)
         .env_clear()
         .envs(&context.config.runtime_env)
@@ -694,7 +696,7 @@ mod tests {
             let temporary = tempfile::tempdir().unwrap();
             let work = temporary.path().join("JOB 日本語 workspace");
             fs::create_dir(&work).await.unwrap();
-            let config = test_config(work.clone());
+            let config = test_config(fs::canonicalize(&work).await.unwrap());
             let (log_tx, mut logs) = mpsc::channel(8);
             let (upload_tx, _) = mpsc::channel(2);
             let script = match driver {
