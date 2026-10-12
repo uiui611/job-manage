@@ -32,21 +32,24 @@ struct ActiveAttempt {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let mut managed = false;
     match std::env::args().skip(1).collect::<Vec<_>>().as_slice() {
         [] => {}
+        [arg] if arg == "--managed" => managed = true,
         [arg] if arg == "--version" => {
             println!("job-worker {VERSION}");
             return Ok(());
         }
         [arg] if arg == "--help" || arg == "-h" => {
             println!(
-                "job-worker {VERSION}\n\nRuns Node.js/Python JOBs using installed runtimes.\nConfigure JOB_SERVER_URL, JOB_WORKER_TOKEN and JOB_WORKER_ID via environment.\nOptional: JOB_NODE_PATH, JOB_PYTHON_PATH, JOB_WORK_DIR, JOB_WORKER_TAGS, JOB_CA_CERT_FILE.\nStop with Ctrl+C. See docs/windows-worker.md for Windows setup."
+                "job-worker {VERSION}\n\nRuns Node.js/Python JOBs using installed runtimes.\nConfigure JOB_SERVER_URL, JOB_WORKER_TOKEN and JOB_WORKER_ID via environment.\nOptional: JOB_NODE_PATH, JOB_PYTHON_PATH, JOB_WORK_DIR, JOB_WORKER_TAGS, JOB_CA_CERT_FILE.\nStop with Ctrl+C. --managed also stops when the supervising UI closes stdin. See docs/windows-worker.md for Windows setup."
             );
             return Ok(());
         }
         _ => bail!("unknown argument; use --help"),
     }
     tracing_subscriber::fmt()
+        .with_ansi(!managed)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "job_worker=info".into()),
@@ -66,13 +69,33 @@ async fn main() -> Result<()> {
     config.work_dir = tokio::fs::canonicalize(&config.work_dir)
         .await
         .context("cannot resolve JOB_WORK_DIR")?;
-    let drivers = runner::probe_drivers(&config).await;
+    let shutdown = CancellationToken::new();
+    if managed {
+        let cancel = shutdown.clone();
+        // A dedicated thread avoids Tokio stdin's uninterruptible blocking-pool read.
+        // EOF also handles an unexpected UI exit. Never pass this pipe to job scripts.
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buffer = [0; 64];
+            let mut input = std::io::stdin().lock();
+            loop {
+                match input.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+            cancel.cancel();
+        });
+    }
+    let drivers = tokio::select! {
+        _ = shutdown.cancelled() => return Ok(()),
+        drivers = runner::probe_drivers(&config) => drivers,
+    };
     ensure!(
         !drivers.is_empty(),
         "no working Node or Python runtime found"
     );
     let config = Arc::new(config);
-    let shutdown = CancellationToken::new();
     let signal_cancel = shutdown.clone();
     tokio::spawn(async move {
         shutdown_signal().await;

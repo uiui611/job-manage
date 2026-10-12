@@ -6,7 +6,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, feat/windows-worker]
   workflow_dispatch:
 
 permissions:
@@ -92,12 +92,17 @@ jobs:
       - run: cargo test -p job-protocol -p job-worker --locked
       - run: cargo clippy -p job-protocol -p job-worker --all-targets --locked -- -D warnings
       - run: cargo build -p job-worker --release --locked
+      - name: Test desktop settings and worker lifecycle
+        shell: pwsh
+        run: dotnet run --project desktop/JobWorker.UI.Tests -c Release -- target/release/job-worker.exe
+      - name: Publish self-contained desktop UI
+        shell: pwsh
+        run: dotnet publish desktop/JobWorker.UI -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o windows-worker
       - name: Package worker without execution runtimes
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path windows-worker | Out-Null
           Copy-Item target/release/job-worker.exe, LICENSE, docs/windows-worker.md -Destination windows-worker
-          (Get-FileHash windows-worker/job-worker.exe -Algorithm SHA256).Hash.ToLowerInvariant() + '  job-worker.exe' | Set-Content windows-worker/SHA256SUMS.txt
+          Get-ChildItem windows-worker/*.exe | ForEach-Object { (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.Name } | Set-Content windows-worker/SHA256SUMS.txt
           ./windows-worker/job-worker.exe --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload Windows x64 worker
