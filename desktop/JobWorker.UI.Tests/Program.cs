@@ -39,6 +39,8 @@ internal static class Program
             bitmap.Save(Path.Combine(AppContext.BaseDirectory, "ui-smoke.png"));
             form.Close();
         }
+        // This console harness has no persistent WinForms message loop.
+        SynchronizationContext.SetSynchronizationContext(null);
         string root = Path.Combine(Path.GetTempPath(), "job-ui-test-" + Guid.NewGuid());
         Directory.CreateDirectory(root);
         try
