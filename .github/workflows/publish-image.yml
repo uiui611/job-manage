@@ -98,6 +98,13 @@ jobs:
       - name: Publish self-contained desktop UI
         shell: pwsh
         run: dotnet publish desktop/JobWorker.UI -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o windows-worker
+      - name: Upload desktop UI smoke screenshot
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: job-worker-ui-smoke
+          path: desktop/JobWorker.UI.Tests/bin/Release/net8.0-windows/ui-smoke.png
+          retention-days: 14
+          if-no-files-found: error
       - name: Package worker without execution runtimes
         shell: pwsh
         run: |

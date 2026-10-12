@@ -20,6 +20,7 @@ internal sealed class MainForm : Form
     public MainForm()
     {
         Text = "Job Manage — Windows Worker";
+        AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Yu Gothic UI", 10);
         ClientSize = new Size(920, 820);
         MinimumSize = new Size(720, 620);

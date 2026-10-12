@@ -1,5 +1,7 @@
 using JobWorker.UI;
 
+namespace JobWorker.UI.Tests;
+
 internal static class Program
 {
     [STAThread]
@@ -24,7 +26,9 @@ internal static class Program
 
     private static async Task RunTests(string[] args)
     {
-        ApplicationConfiguration.Initialize();
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
         using (var form = new MainForm())
         {
             form.Show();
