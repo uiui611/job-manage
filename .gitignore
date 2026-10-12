@@ -24,3 +24,6 @@ kubeconfig*
 *.tar
 *.tar.gz
 *.zip
+/desktop/**/bin/
+/desktop/**/obj/
+/windows-worker/

@@ -16,7 +16,29 @@ cargo build -p job-worker --release --locked
 
 CI は CRT を静的リンクします。Node/Python は `.exe` 自身が動作する環境を別途用意してください。
 
-## 起動
+## デスクトップ UI で起動
+
+artifact を展開し、`job-worker.exe` と同じフォルダーの `job-worker-ui.exe` を開きます。UI 用の .NET ランタイムは配布物に含まれるため、別途インストールする必要はありません。ジョブを実行する Node.js / Python は引き続き環境側で用意してください。
+
+1. 接続先 URL、ワーカートークン、固有のワーカー ID と表示名を入力します。
+2. 必要に応じてタグ（JSON 配列）、作業フォルダー、Node / Python の実行ファイル、追加 CA の PEM ファイル、追加環境変数名を設定します。パスは「参照…」でも選べます。
+3. 「設定を保存」で `%LOCALAPPDATA%\JobManage\ui-settings.json` にトークン以外を保存します。トークンは毎回入力し、ファイルやコマンドライン引数には保存しません。
+4. 「起動」を押します。実際の認証完了はログの `authenticated worker session established` で確認します。プロセス起動中という表示だけでは接続完了を意味しません。設定は停止中に変更できます。
+5. 「停止」で実行中のジョブも停止します。ウィンドウを閉じる際も確認後に停止します。起動中の UI が異常終了した場合も、標準入力パイプの切断をワーカーが検知して停止します。
+
+UI は同じフォルダーのワーカーだけを起動し、認証や再接続・ジョブ実行は既存ワーカーが担当します。追加 CA はサーバー証明書の検証用で、mTLS クライアント証明書の設定ではありません。開発時のみ「開発用 HTTP を許可」を使用してください。
+
+ログはメモリ内で件数・表示サイズを制限し、ファイルへは自動保存しません。大量のログでは古い部分を省略します。通常停止を 15 秒待っても終了しない場合はプロセスツリーを強制終了します。その場合は作業フォルダーの一時データが残る可能性があります。停止したジョブを自動再実行することはありません。
+
+UI のソースビルドには .NET 8 SDK 以上（.NET 8 をターゲット可能なもの）が必要です。
+
+```powershell
+dotnet run --project desktop/JobWorker.UI.Tests -c Release -- target/release/job-worker.exe
+dotnet publish desktop/JobWorker.UI -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o windows-worker
+Copy-Item target/release/job-worker.exe windows-worker/
+```
+
+## コマンドラインで起動
 
 PowerShell で環境変数を設定してから起動します。トークンは管理画面で発行したワーカー用トークンに置き換え、設定や PowerShell の履歴を公開リポジトリへ追加しないでください。
 
