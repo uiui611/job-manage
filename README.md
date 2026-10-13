@@ -1,6 +1,6 @@
 # Job Manage
 
-Rust 製の小さな JOB 実行基盤です。サーバーは管理画面・REST API・割り振りを担当し、外向きに接続する Linux Docker ワーカーで Node.js / Python スクリプトを実行します。
+Rust 製の小さな JOB 実行基盤です。サーバーは管理画面・REST API・割り振りを担当し、外向きに接続する Linux Docker / Windows ネイティブのワーカーで Node.js / Python スクリプトを実行します。
 
 - タグの完全一致による AND 条件で、実行可能な古い JOB から割り振ります。
 - ワーカー 1 台の実行枠は 1 個です。対応するワーカーがいない JOB は後続を妨げません。
@@ -110,6 +110,7 @@ curl -H "Authorization: Bearer $JOB_API_TOKEN" \
 ## デプロイと運用
 
 - [Kubernetes 導入手順](docs/deployment.md)
+- [Windows ワーカーの取得・起動](docs/windows-worker.md)
 - [設計と制約](docs/design.md)
 - [REST API](docs/api.md)
 - [OpenAPI 定義](docs/openapi.json)（実行中サーバーでは `/jobs/api/v1/openapi.json`）
@@ -136,7 +137,7 @@ ENTRYPOINT ["/usr/local/bin/job-worker"]
 
 Node のスクリプトは JOB 専用ディレクトリの `.mjs` として実行されるため、追加依存を npm の global 領域に入れるだけでは ESM import を解決できません。派生イメージで `USER root` に切り替え、固定済み `package.json` と `package-lock.json` を `/` に配置して `RUN npm ci --prefix / --omit=dev` を実行すると、探索対象の `/node_modules` に配置できます。インストール後は `USER 10001:10001` に戻してください。Python の仮想環境は `JOB_PYTHON_PATH=/opt/venv/bin/python` のように指定できます。
 
-Windows の直接実行・Windows Sandbox 対応は将来の範囲です。Windows の WSL やコンテナは前提にしていません。
+Windows 用は `job-worker.exe` をホストまたは Windows Sandbox 内で直接実行します。Node/Python は環境から提供します。Windows 用 CI artifact の取得と設定方法は [起動手順](docs/windows-worker.md) を参照してください。
 
 ## 開発・検証
 

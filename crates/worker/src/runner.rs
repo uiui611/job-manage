@@ -1,4 +1,5 @@
 use crate::config::{Config, MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_FILE_BYTES};
+use crate::process::ProcessTree;
 use anyhow::{Context, Result, bail, ensure};
 use futures_util::StreamExt;
 use job_protocol::{
@@ -85,21 +86,40 @@ pub async fn probe_drivers(config: &Config) -> Vec<Driver> {
     ] {
         let mut command = Command::new(runtime);
         command
-            .arg("--version")
+            .args(match driver {
+                Driver::Node => ["--eval", "process.stdout.write('job-runtime-probe')"],
+                Driver::Python => ["-c", "print('job-runtime-probe', end='')"],
+            })
             .env_clear()
             .envs(&config.runtime_env)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true);
-        set_process_group(&mut command);
-        if let Ok(mut child) = command.spawn() {
-            let group = ProcessGroup::new(child.id());
-            if matches!(tokio::time::timeout(Duration::from_secs(5), child.wait()).await, Ok(Ok(status)) if status.success())
-            {
+        if let Ok((mut child, group)) = ProcessTree::spawn(&mut command) {
+            let Some(stdout) = child.stdout.take() else {
+                continue;
+            };
+            let probe = async {
+                let wait = async {
+                    let status = child.wait().await;
+                    drop(group);
+                    status
+                };
+                let read = async {
+                    let mut bytes = Vec::new();
+                    stdout.take(64).read_to_end(&mut bytes).await?;
+                    Ok::<_, std::io::Error>(bytes)
+                };
+                let (status, output) = tokio::join!(wait, read);
+                Ok::<_, std::io::Error>(status?.success() && output? == b"job-runtime-probe")
+            };
+            if matches!(
+                tokio::time::timeout(Duration::from_secs(5), probe).await,
+                Ok(Ok(true))
+            ) {
                 drivers.push(driver);
             }
-            drop(group);
         }
     }
     drivers
@@ -132,12 +152,15 @@ pub async fn run_attempt(
         }
     };
     report.logs_truncated = logs_truncated.load(Ordering::Relaxed);
-    // Dropping execute first kills the entire process group, including children holding pipes.
+    // Dropping execute first stops the process tree, including children holding pipes.
     // Only the UUID directory created for this attempt is ever removed.
-    if let Err(error) = fs::remove_dir_all(&workspace).await
+    if let Err(error) = remove_workspace(&workspace).await
         && error.kind() != std::io::ErrorKind::NotFound
     {
-        tracing::warn!("could not remove an attempt workspace");
+        tracing::warn!(
+            os_error = error.raw_os_error(),
+            "could not remove an attempt workspace"
+        );
     }
     report
 }
@@ -182,7 +205,9 @@ async fn execute(
         .context("cannot write JOB script")?;
     let mut command = Command::new(runtime);
     command
-        .arg(&script)
+        // Launch within the workspace: Node's entry-point resolver rejects some
+        // Windows verbatim absolute paths returned by canonicalize.
+        .arg(script_name)
         .current_dir(workspace)
         .env_clear()
         .envs(&context.config.runtime_env)
@@ -198,9 +223,12 @@ async fn execute(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    set_process_group(&mut command);
-    let mut child = command.spawn().context("cannot start selected runtime")?;
-    let group = ProcessGroup::new(child.id());
+    #[cfg(windows)]
+    command
+        .env("USERPROFILE", workspace)
+        .env("TEMP", &temp)
+        .env("TMP", &temp);
+    let (mut child, group) = ProcessTree::spawn(&mut command)?;
     let stdout = child.stdout.take().context("stdout pipe unavailable")?;
     let stderr = child.stderr.take().context("stderr pipe unavailable")?;
     let budget = Arc::new(AtomicUsize::new(MAX_LOG_BYTES));
@@ -324,7 +352,7 @@ async fn read_result(path: &Path) -> Result<Option<Value>> {
         Err(_) => bail!("cannot inspect result.json"),
     };
     ensure!(
-        metadata.file_type().is_file(),
+        regular_file(&metadata),
         "result.json must be a regular file, not a symlink"
     );
     ensure!(
@@ -370,7 +398,7 @@ async fn upload_artifacts(
             .await
             .context("cannot inspect artifact")?;
         ensure!(
-            metadata.file_type().is_file(),
+            regular_file(&metadata),
             "artifacts must be regular files, without symlinks or subdirectories"
         );
         ensure!(metadata.len() <= MAX_FILE_BYTES, "artifact exceeds 64 MiB");
@@ -478,31 +506,40 @@ fn reserve_bytes(budget: &AtomicUsize, wanted: usize) -> usize {
     }
 }
 
-fn set_process_group(command: &mut Command) {
-    #[cfg(unix)]
-    command.process_group(0);
-    #[cfg(not(unix))]
-    let _ = command;
-}
-
-struct ProcessGroup {
-    pid: Option<u32>,
-}
-impl ProcessGroup {
-    fn new(pid: Option<u32>) -> Self {
-        Self { pid }
-    }
-}
-impl Drop for ProcessGroup {
-    fn drop(&mut self) {
-        #[cfg(unix)]
-        if let Some(pid) = self.pid.take() {
-            // The process was made leader of a new group at spawn; no shell is involved.
-            unsafe {
-                libc::kill(-(pid as i32), libc::SIGKILL);
-            }
+fn regular_file(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        // Reject all reparse points, including symlinks and Windows-specific redirection.
+        if metadata.file_attributes() & 0x400 != 0 {
+            return false;
         }
     }
+    metadata.file_type().is_file()
+}
+
+async fn remove_workspace(path: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    for _ in 0..40 {
+        // Job termination is asynchronous; let killed processes release file handles.
+        match fs::remove_dir_all(path).await {
+            Err(error) if matches!(error.raw_os_error(), Some(5 | 16 | 32 | 33 | 145 | 303)) => {
+                // Access denied, current directory, sharing/lock violation, directory
+                // not empty, or delete pending can occur while Windows releases handles.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // A child entry disappearing during deletion need not mean the UUID
+                // workspace itself has disappeared. Retry only that same owned directory.
+                if fs::symlink_metadata(path).await.is_err() {
+                    return Err(error);
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            result => return result,
+        }
+    }
+    fs::remove_dir_all(path).await
 }
 
 #[cfg(test)]
@@ -563,12 +600,11 @@ mod tests {
         assert!(read_result(&path).await.is_err());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", windows))]
     async fn process_tree_case(cancel_early: bool) {
         let temporary = tempfile::tempdir().unwrap();
         let pid_file = temporary.path().join("child.pid");
-        let mut config = test_config(temporary.path().to_path_buf());
-        config.python_path = "python3".into();
+        let config = test_config(temporary.path().to_path_buf());
         let (log_tx, _) = mpsc::channel(2);
         let (upload_tx, _) = mpsc::channel(2);
         let context = RunContext {
@@ -578,7 +614,7 @@ mod tests {
             upload_tx,
         };
         let script = format!(
-            "import subprocess,time,pathlib\np = subprocess.Popen(['python3','-c','import time; time.sleep(60)'])\npathlib.Path({:?}).write_text(str(p.pid))\ntime.sleep(60)\n",
+            "import subprocess,time,pathlib,sys\np = subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\npathlib.Path({:?}).write_text(str(p.pid))\ntime.sleep(60)\n",
             pid_file.to_str().unwrap()
         );
         let assignment = Assignment {
@@ -605,7 +641,7 @@ mod tests {
         })
         .await
         .expect("python3 must be installed for worker process tests");
-        let pid: i32 = fs::read_to_string(&pid_file)
+        let pid: u32 = fs::read_to_string(&pid_file)
             .await
             .unwrap()
             .parse()
@@ -627,16 +663,7 @@ mod tests {
         );
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                // A zombie is already dead; its adopting parent determines when it is reaped.
-                let state = fs::read_to_string(format!("/proc/{pid}/stat"))
-                    .await
-                    .unwrap_or_default();
-                if state.is_empty()
-                    || state
-                        .split(") ")
-                        .nth(1)
-                        .is_some_and(|tail| tail.starts_with('Z'))
-                {
+                if !crate::process::is_alive(pid) {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;
@@ -650,15 +677,144 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", windows))]
     #[tokio::test]
     async fn cancellation_kills_the_process_tree() {
         process_tree_case(true).await;
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", windows))]
     #[tokio::test]
     async fn timeout_kills_the_process_tree() {
         process_tree_case(false).await;
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn installed_runtimes_execute_in_unicode_and_space_paths() {
+        for driver in [Driver::Node, Driver::Python] {
+            let temporary = tempfile::tempdir().unwrap();
+            let work = temporary.path().join("JOB 日本語 workspace");
+            fs::create_dir(&work).await.unwrap();
+            let config = test_config(fs::canonicalize(&work).await.unwrap());
+            let (log_tx, mut logs) = mpsc::channel(8);
+            let (upload_tx, _) = mpsc::channel(2);
+            let script = match driver {
+                Driver::Node => {
+                    "import fs from 'node:fs'; const input=JSON.parse(fs.readFileSync(process.env.JOB_INPUT_FILE,'utf8')); if(process.env.JOB_WORKER_TOKEN) throw Error('credential inherited'); fs.writeFileSync(process.env.JOB_RESULT_FILE,JSON.stringify({sum:input.a+input.b})); console.log('node-ok');"
+                }
+                Driver::Python => {
+                    "import os,json,pathlib\nassert 'JOB_WORKER_TOKEN' not in os.environ\nassert os.environ['TEMP']==os.environ['TMP']\nassert os.environ['SystemRoot']\ndata=json.loads(pathlib.Path(os.environ['JOB_INPUT_FILE']).read_text())\npathlib.Path(os.environ['JOB_RESULT_FILE']).write_text(json.dumps({'sum':data['a']+data['b']}))\nprint('python-ok')\n"
+                }
+            };
+            let assignment = Assignment {
+                run_id: "run".into(),
+                attempt_id: "attempt".into(),
+                input: serde_json::json!({"a": 2, "b": 3}),
+                files: vec![],
+                definition: DefinitionSpec {
+                    name: "native".into(),
+                    description: String::new(),
+                    driver,
+                    script: script.into(),
+                    input_schema: serde_json::json!({}),
+                    required_tags: vec![],
+                    timeout_seconds: 15,
+                },
+            };
+            let report = run_attempt(
+                RunContext {
+                    config: Arc::new(config),
+                    http: reqwest::Client::new(),
+                    log_tx,
+                    upload_tx,
+                },
+                assignment,
+                CancellationToken::new(),
+            )
+            .await;
+            assert_eq!(report.outcome, Outcome::Succeeded, "{:?}", report.error);
+            assert_eq!(report.result, Some(serde_json::json!({"sum":5})));
+            assert!(
+                matches!(logs.try_recv(), Ok(WorkerMessage::Log { text, .. }) if text.contains("-ok"))
+            );
+            assert!(
+                fs::read_dir(&work)
+                    .await
+                    .unwrap()
+                    .next_entry()
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn probes_only_available_runtimes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut config = test_config(temporary.path().to_path_buf());
+        config.node_path = temporary
+            .path()
+            .join("not-installed.exe")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(probe_drivers(&config).await, vec![Driver::Python]);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn successful_non_runtime_executable_is_not_registered() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut config = test_config(temporary.path().to_path_buf());
+        let executable = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join("System32")
+            .join("hostname.exe");
+        config.node_path = executable.to_string_lossy().into_owned();
+        config.python_path = config.node_path.clone();
+        assert!(probe_drivers(&config).await.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn normal_exit_stops_descendants_holding_pipes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let pid_file = temporary.path().join("child.pid");
+        let config = test_config(temporary.path().to_path_buf());
+        let (log_tx, _) = mpsc::channel(8);
+        let (upload_tx, _) = mpsc::channel(2);
+        let assignment = Assignment {
+            run_id: "run".into(),
+            attempt_id: "attempt".into(),
+            input: serde_json::json!({}),
+            files: vec![],
+            definition: DefinitionSpec {
+                name: "exit".into(),
+                description: String::new(),
+                driver: Driver::Python,
+                script: format!(
+                    "import subprocess,pathlib,sys\np=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\npathlib.Path({:?}).write_text(str(p.pid))\n",
+                    pid_file.to_str().unwrap()
+                ),
+                input_schema: serde_json::json!({}),
+                required_tags: vec![],
+                timeout_seconds: 10,
+            },
+        };
+        let report = run_attempt(
+            RunContext {
+                config: Arc::new(config),
+                http: reqwest::Client::new(),
+                log_tx,
+                upload_tx,
+            },
+            assignment,
+            CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(report.outcome, Outcome::Succeeded, "{:?}", report.error);
+        let pid = fs::read_to_string(pid_file).await.unwrap().parse().unwrap();
+        assert!(!crate::process::is_alive(pid));
     }
 }

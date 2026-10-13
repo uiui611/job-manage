@@ -2,7 +2,7 @@
 
 - This is the source repository for `uiui611/job-manage`.
 - Keep the existing MIT `LICENSE` and copyright notice intact.
-- The Rust workspace contains the shared protocol, server and Linux worker. Keep their application versions equal.
+- The Rust workspace contains the shared protocol, server and Linux/Windows worker. Keep their application versions equal.
 - The UI uses Bun 1.4.2, Vite, TypeScript and Web Components. Use committed lockfiles.
 - Check Rust with `cargo fmt --all -- --check`, `cargo test --workspace --locked`, and `cargo clippy --workspace --all-targets --locked -- -D warnings`.
 - Check the UI in `web/` with `bun install --frozen-lockfile`, `bun run format:check`, and `bun run build`.

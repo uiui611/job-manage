@@ -6,7 +6,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, feat/windows-worker]
   workflow_dispatch:
 
 permissions:
@@ -64,10 +64,66 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+  windows-worker:
+    name: Check and package Windows worker
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: 4
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Check externally provided runtimes and Rust tools
+        shell: pwsh
+        run: |
+          rustup component add rustfmt clippy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc --version
+          node --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $pythonPath = (Get-Command python.exe).Source
+          "JOB_TEST_PYTHON=$pythonPath" >> $env:GITHUB_ENV
+      - run: cargo fmt --all -- --check
+      - run: cargo test -p job-protocol -p job-worker --locked
+      - run: cargo clippy -p job-protocol -p job-worker --all-targets --locked -- -D warnings
+      - run: cargo build -p job-worker --release --locked
+      - name: Test desktop settings and worker lifecycle
+        shell: pwsh
+        run: dotnet run --project desktop/JobWorker.UI.Tests -c Release -- target/release/job-worker.exe
+      - name: Publish self-contained desktop UI
+        shell: pwsh
+        run: dotnet publish desktop/JobWorker.UI -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o windows-worker
+      - name: Upload desktop UI smoke screenshot
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: job-worker-ui-smoke
+          path: desktop/JobWorker.UI.Tests/bin/Release/net8.0-windows/ui-smoke.png
+          retention-days: 14
+          if-no-files-found: error
+      - name: Package worker without execution runtimes
+        shell: pwsh
+        run: |
+          Copy-Item target/release/job-worker.exe, LICENSE, docs/windows-worker.md -Destination windows-worker
+          Get-ChildItem windows-worker/*.exe | ForEach-Object { (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.Name } | Set-Content windows-worker/SHA256SUMS.txt
+          ./windows-worker/job-worker.exe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows x64 worker
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: job-worker-windows-x64
+          path: windows-worker/
+          retention-days: 14
+          if-no-files-found: error
+
   build:
     name: Validate pull request image (${{ matrix.image }})
     if: github.event_name == 'pull_request'
-    needs: [frontend, backend]
+    needs: [frontend, backend, windows-worker]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -93,7 +149,7 @@ jobs:
   publish:
     name: Publish main images and request deployment
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: [frontend, backend]
+    needs: [frontend, backend, windows-worker]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:

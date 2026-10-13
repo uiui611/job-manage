@@ -1,9 +1,9 @@
-# Linux worker
+# Linux / Windows worker
 
-This release runs one job at a time in an existing Linux container or VM. The
+This release runs one job at a time in an existing Linux container/VM or directly on Windows. The
 agent directly spawns Node or Python; it does not need the Docker socket and does
-not create containers. Windows-native execution is deliberately rejected until
-Windows process-tree termination and isolation have been implemented.
+not create containers. Windows uses installed Node/Python runtimes and Job Objects
+for process-tree lifetime control. See [Windows setup](../../docs/windows-worker.md).
 
 ## Configuration
 
@@ -14,14 +14,16 @@ Windows process-tree termination and isolation have been implemented.
 | `JOB_WORKER_ID` | Required. Stable unique ASCII identifier using letters, digits, `_`, `-`, `.` (not `.` or `..`), up to 120 bytes. Never share it between concurrent agents. |
 | `JOB_WORKER_NAME` | Worker ID. Human-readable display name, 1–160 bytes. |
 | `JOB_WORKER_TAGS` | `[]`. JSON array, e.g. `["os=linux","env=base"]`. Maximum 64 tags, 128 bytes each. |
-| `JOB_WORK_DIR` | `/work`. Writable workspace root; converted to an absolute path at startup. |
+| `JOB_WORK_DIR` | `/work` on Linux; `%LOCALAPPDATA%\JobManage\work` on Windows. Writable workspace root; converted to an absolute path at startup. |
 | `JOB_NODE_PATH` | `node`. Node executable, preferably an absolute path if customized. |
-| `JOB_PYTHON_PATH` | `python3`. Python executable, preferably an absolute path if customized. |
+| `JOB_PYTHON_PATH` | `python3` on Linux, `python` on Windows. Python executable, preferably an absolute path if customized. |
 | `JOB_ALLOW_INSECURE_HTTP` | `false`. Only literal `true` permits development HTTP/WS. TLS certificate checks remain enabled for HTTPS/WSS. |
 | `JOB_CA_CERT_FILE` | Optional path to a PEM bundle of additional trusted CA certificates for both HTTPS file transfers and WSS. Standard roots and hostname verification remain enabled. |
 | `JOB_RUNTIME_ENV_ALLOWLIST` | Optional comma-separated extra environment variable names to pass to scripts. Names beginning with `JOB_` are forbidden. |
 
-Runtime availability is probed with `--version`. At least one runtime must work.
+Runtime availability is probed by executing a short marker script with a timeout.
+Only a successful exit and exact marker output register a driver, so a Windows
+installation alias or unrelated executable is not accepted. At least one runtime must work.
 Scripts receive a cleared environment containing `PATH`, per-attempt `HOME` and
 `TMPDIR`, `LANG=C.UTF-8`, `PYTHONUNBUFFERED=1`, and the job path variables below.
 GPU settings are also copied when present: `LD_LIBRARY_PATH`,
@@ -66,7 +68,7 @@ the worker token, never follow redirects, and enforce the declared input size.
 Completion holds the single execution slot until the server acknowledges it.
 
 Disconnect, server silence, cancellation, timeout, and worker shutdown stop the
-Linux process group, including descendants that remain in that group. A completed
+Linux process group or Windows Job Object, including descendants. A completed
 main process also has its remaining descendants killed. The failed or interrupted
 attempt is never resumed after reconnect; the worker reconnects with a 1–30 second
 exponential backoff. Workspaces are removed on normal completion/cancellation;
@@ -84,7 +86,7 @@ container/VM, avoid host-directory and Docker-socket mounts, and set container C
 RAM and storage limits. GPU access and frameworks must be provisioned for the
 actual GPU vendor and runtime; tags do not measure available VRAM.
 
-Linux worker tests require `python3`. They cover whole-process-group cancellation,
+Linux worker tests require `python3`; Windows tests require Node and Python from the environment. They cover process-tree cancellation,
 timeout, WebSocket disconnection and a server that stops responding, as well as
 bounded logs, result size, symlink rejection and transfer URL validation.
 TLS tests generate temporary certificates at runtime and verify HTTPS and WSS
