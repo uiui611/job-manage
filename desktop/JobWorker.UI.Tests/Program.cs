@@ -48,6 +48,15 @@ internal static class Program
             var settings = new Settings { ServerUrl = "https://example.invalid/jobs", WorkDir = root };
             const string token = "test-only-token";
             settings.Validate(token);
+            var cases = System.Text.Json.JsonSerializer.Deserialize<WorkerIdCase[]>(
+                File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "worker-id-cases.json")))!;
+            foreach (var item in cases)
+            {
+                var accepted = true;
+                try { (settings with { WorkerId = item.id }).Validate(token); }
+                catch (ArgumentException) { accepted = false; }
+                Check(accepted == item.valid, $"shared worker ID contract: {item.id}");
+            }
             var path = Path.Combine(root, "settings.json");
             settings.Save(path);
             Check(Settings.Load(path) == settings, "settings round trip");
@@ -102,4 +111,6 @@ internal static class Program
     {
         if (!condition) throw new Exception(message);
     }
+
+    private sealed record WorkerIdCase(string id, bool valid);
 }

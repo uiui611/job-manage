@@ -138,6 +138,10 @@ pub fn tags_match(required: &[String], available: &[String]) -> bool {
     required.iter().all(|tag| available.contains(tag))
 }
 
+pub fn valid_worker_id(id: &str) -> bool {
+    id.len() <= 120 && safe_file_name(id)
+}
+
 pub fn safe_file_name(name: &str) -> bool {
     let stem = name
         .split('.')
@@ -162,6 +166,19 @@ pub fn safe_file_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn worker_ids_follow_shared_contract() {
+        #[derive(Deserialize)]
+        struct Case {
+            id: String,
+            valid: bool,
+        }
+        let cases: Vec<Case> =
+            serde_json::from_str(include_str!("../../../tests/worker-id-cases.json")).unwrap();
+        for case in cases {
+            assert_eq!(valid_worker_id(&case.id), case.valid, "ID: {:?}", case.id);
+        }
+    }
     #[test]
     fn matches_all_tags_not_substrings() {
         assert!(tags_match(

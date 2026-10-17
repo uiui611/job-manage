@@ -11,7 +11,7 @@ for process-tree lifetime control. See [Windows setup](../../docs/windows-worker
 | --- | --- |
 | `JOB_SERVER_URL` | Required. HTTPS base URL, such as `https://host/jobs`. |
 | `JOB_WORKER_TOKEN` | Required. Worker authentication token. |
-| `JOB_WORKER_ID` | Required. Stable unique ASCII identifier using letters, digits, `_`, `-`, `.` (not `.` or `..`), up to 120 bytes. Never share it between concurrent agents. |
+| `JOB_WORKER_ID` | Required. Stable unique identifier of 1–120 ASCII letters, digits, `_`, `-`, `.`. Trailing dots (including `.` and `..`) and reserved names `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9` are forbidden, case-insensitively and even with an extension (e.g. `con.txt`). Never share it between concurrent agents. |
 | `JOB_WORKER_NAME` | Worker ID. Human-readable display name, 1–160 bytes. |
 | `JOB_WORKER_TAGS` | `[]`. JSON array, e.g. `["os=linux","env=base"]`. Maximum 64 tags, 128 bytes each. |
 | `JOB_WORK_DIR` | `/work` on Linux; `%LOCALAPPDATA%\JobManage\work` on Windows. Writable workspace root; converted to an absolute path at startup. |
