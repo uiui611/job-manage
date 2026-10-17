@@ -685,6 +685,7 @@ mod tests {
     #[test]
     fn documented_input_schema_limits_match_compact_json() {
         let schema = documented_definition();
+        let validator = jsonschema::validator_for(&schema).unwrap();
         let limit = schema["properties"]["input_schema"]["x-max-serialized-json-utf8-bytes"]
             .as_u64()
             .unwrap() as usize;
@@ -705,9 +706,15 @@ mod tests {
             json!(false),
             json!({"$defs":{"x":{"type":"string"}},"$ref":"#/$defs/x"}),
         ] {
-            assert!(validate_spec(&spec_with("input_schema", value)).is_ok());
+            let spec = spec_with("input_schema", value);
+            assert!(validator.is_valid(&serde_json::to_value(&spec).unwrap()));
+            assert!(validate_spec(&spec).is_ok());
         }
-        assert!(validate_spec(&spec_with("input_schema", json!("not a schema"))).is_err());
+        for value in [json!("not a schema"), json!([]), json!(1)] {
+            let spec = spec_with("input_schema", value);
+            assert!(!validator.is_valid(&serde_json::to_value(&spec).unwrap()));
+            assert!(validate_spec(&spec).is_err());
+        }
         for keyword in ["$ref", "$dynamicRef", "$recursiveRef"] {
             let mut value = json!({});
             value[keyword] = json!("https://example.invalid/schema");

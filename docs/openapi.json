@@ -1638,6 +1638,7 @@
             "description": "Nonempty script, at most 262144 UTF-8 bytes (256 KiB). maxLength counts Unicode characters and does not enforce this byte limit."
           },
           "input_schema": {
+            "type": ["object", "boolean"],
             "description": "A valid JSON Schema (object or boolean), at most 32768 UTF-8 bytes (32 KiB) after compact serialization by serde_json on the server, not the raw request's whitespace or escape spelling. Every $ref, $dynamicRef and $recursiveRef must be a string starting with #; external references are disabled. The byte limit is an application constraint, not a JSON Schema maxLength constraint.",
             "x-max-serialized-json-utf8-bytes": 32768,
             "default": { "type": "object" }
