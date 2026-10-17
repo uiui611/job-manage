@@ -612,6 +612,115 @@ pub async fn get_blob(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn documented_definition() -> Value {
+        serde_json::from_str::<Value>(include_str!("../../../docs/openapi.json")).unwrap()
+            ["components"]["schemas"]["DefinitionSpec"].clone()
+    }
+
+    fn spec_with(field: &str, value: Value) -> DefinitionSpec {
+        let mut spec = json!({"name":"job", "driver":"node", "script":"1"});
+        spec[field] = value;
+        serde_json::from_value(spec).unwrap()
+    }
+
+    #[test]
+    fn documented_utf8_limits_match_server_boundaries() {
+        let schema = documented_definition();
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        for field in ["name", "description", "script", "required_tags"] {
+            let property = &schema["properties"][field];
+            let string_schema = if field == "required_tags" {
+                &property["items"]
+            } else {
+                property
+            };
+            let limit = string_schema["x-max-utf8-bytes"].as_u64().unwrap() as usize;
+            assert_eq!(string_schema["maxLength"].as_u64().unwrap() as usize, limit);
+            let wrap = |text: String| {
+                if field == "required_tags" {
+                    json!([text])
+                } else {
+                    json!(text)
+                }
+            };
+            let exact_japanese = "あ".repeat(limit / 3) + &"a".repeat(limit % 3);
+            for text in [
+                "a".repeat(limit),
+                "あ".repeat(limit / 3),
+                exact_japanese.clone(),
+            ] {
+                let spec = spec_with(field, wrap(text));
+                assert!(validator.is_valid(&serde_json::to_value(&spec).unwrap()));
+                assert!(validate_spec(&spec).is_ok(), "{field}: at the byte limit");
+            }
+            for text in [
+                "a".repeat(limit + 1),
+                exact_japanese + "a",
+                "あ".repeat(limit / 3 + 1),
+            ] {
+                assert!(
+                    validate_spec(&spec_with(field, wrap(text))).is_err(),
+                    "{field}: over the byte limit"
+                );
+            }
+            // Character-count validation alone accepts a multi-byte value that the API rejects.
+            let spec = spec_with(field, wrap("あ".repeat(limit / 3 + 1)));
+            assert!(validator.is_valid(&serde_json::to_value(spec).unwrap()));
+        }
+        assert!(validate_spec(&spec_with("name", json!("あ".repeat(53)))).is_ok());
+        assert!(validate_spec(&spec_with("name", json!("あ".repeat(54)))).is_err());
+        for (field, valid) in [("name", false), ("description", true), ("script", false)] {
+            assert_eq!(validate_spec(&spec_with(field, json!(""))).is_ok(), valid);
+        }
+        assert!(validate_spec(&spec_with("name", json!(" \t\n"))).is_err());
+        assert!(validate_spec(&spec_with("required_tags", json!([""]))).is_err());
+        let limit = schema["properties"]["required_tags"]["maxItems"]
+            .as_u64()
+            .unwrap() as usize;
+        assert!(validate_spec(&spec_with("required_tags", json!(vec!["tag"; limit]))).is_ok());
+        assert!(validate_spec(&spec_with("required_tags", json!(vec!["tag"; limit + 1]))).is_err());
+    }
+
+    #[test]
+    fn documented_input_schema_limits_match_compact_json() {
+        let schema = documented_definition();
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        let limit = schema["properties"]["input_schema"]["x-max-serialized-json-utf8-bytes"]
+            .as_u64()
+            .unwrap() as usize;
+        let overhead = json!({"description":""}).to_string().len();
+        for (text, valid) in [
+            ("a".repeat(limit - overhead), true),
+            ("a".repeat(limit - overhead + 1), false),
+            ("あ".repeat((limit - overhead) / 3), true),
+            ("あ".repeat((limit - overhead) / 3 + 1), false),
+        ] {
+            assert_eq!(
+                validate_spec(&spec_with("input_schema", json!({"description":text}))).is_ok(),
+                valid
+            );
+        }
+        for value in [
+            json!(true),
+            json!(false),
+            json!({"$defs":{"x":{"type":"string"}},"$ref":"#/$defs/x"}),
+        ] {
+            let spec = spec_with("input_schema", value);
+            assert!(validator.is_valid(&serde_json::to_value(&spec).unwrap()));
+            assert!(validate_spec(&spec).is_ok());
+        }
+        for value in [json!("not a schema"), json!([]), json!(1)] {
+            let spec = spec_with("input_schema", value);
+            assert!(!validator.is_valid(&serde_json::to_value(&spec).unwrap()));
+            assert!(validate_spec(&spec).is_err());
+        }
+        for keyword in ["$ref", "$dynamicRef", "$recursiveRef"] {
+            let mut value = json!({});
+            value[keyword] = json!("https://example.invalid/schema");
+            assert!(validate_spec(&spec_with("input_schema", value)).is_err());
+        }
+    }
     #[test]
     fn rejects_remote_schema_references() {
         assert!(external_ref(
