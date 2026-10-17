@@ -1613,10 +1613,16 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 160
+            "maxLength": 160,
+            "x-max-utf8-bytes": 160,
+            "description": "Must contain a non-whitespace character and be at most 160 UTF-8 bytes (before trimming). maxLength counts Unicode characters, not bytes, and is only a necessary upper bound. For example, 160 ASCII characters fit; 53 Japanese あ characters use 159 bytes, while 54 use 162 bytes and are rejected."
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 4096,
+            "x-max-utf8-bytes": 4096,
+            "description": "At most 4096 UTF-8 bytes; empty is allowed. maxLength counts Unicode characters and does not enforce this byte limit.",
+            "default": ""
           },
           "driver": {
             "enum": [
@@ -1627,16 +1633,26 @@
           "script": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 262144
+            "maxLength": 262144,
+            "x-max-utf8-bytes": 262144,
+            "description": "Nonempty script, at most 262144 UTF-8 bytes (256 KiB). maxLength counts Unicode characters and does not enforce this byte limit."
           },
           "input_schema": {
-            "description": "JSON Schema; external references are disabled"
+            "description": "A valid JSON Schema (object or boolean), at most 32768 UTF-8 bytes (32 KiB) after compact serialization by serde_json on the server, not the raw request's whitespace or escape spelling. Every $ref, $dynamicRef and $recursiveRef must be a string starting with #; external references are disabled. The byte limit is an application constraint, not a JSON Schema maxLength constraint.",
+            "x-max-serialized-json-utf8-bytes": 32768,
+            "default": { "type": "object" }
           },
           "required_tags": {
             "type": "array",
+            "maxItems": 64,
+            "description": "At most 64 tags; each tag must be nonempty and at most 128 UTF-8 bytes. Duplicate tags are allowed. The items maxLength counts Unicode characters, not bytes.",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-max-utf8-bytes": 128
+            },
+            "default": []
           },
           "timeout_seconds": {
             "type": "integer",
