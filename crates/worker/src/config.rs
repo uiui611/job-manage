@@ -33,8 +33,8 @@ impl Config {
         );
         let worker_id = required("JOB_WORKER_ID")?;
         ensure!(
-            worker_id.len() <= 120 && job_protocol::safe_file_name(&worker_id),
-            "JOB_WORKER_ID must be a safe ASCII filename of at most 120 bytes"
+            job_protocol::valid_worker_id(&worker_id),
+            "JOB_WORKER_ID must use 1..120 ASCII letters, digits, _, - or .; trailing dots and reserved names (CON/PRN/AUX/NUL/COM1..9/LPT1..9, with any case or extension) are forbidden"
         );
         let name = env::var("JOB_WORKER_NAME").unwrap_or_else(|_| worker_id.clone());
         ensure!(

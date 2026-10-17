@@ -28,8 +28,13 @@ public sealed record Settings
             throw new ArgumentException("接続先は認証情報・クエリ・フラグメントを含まない HTTPS URL を指定してください。");
         if (string.IsNullOrWhiteSpace(token) || token.Any(c => c < 32 || c > 126))
             throw new ArgumentException("ワーカートークンを半角文字で入力してください。");
-        if (!Regex.IsMatch(WorkerId, @"\A[A-Za-z0-9_.-]{1,120}\z") || WorkerId is "." or "..")
-            throw new ArgumentException("ワーカー ID は半角英数字・_・-・. の 1～120 文字で指定してください（. と .. は使用不可）。");
+        var stem = WorkerId.Split('.')[0].ToUpperInvariant();
+        var reserved = stem is "CON" or "PRN" or "AUX" or "NUL" ||
+            (stem.Length == 4 && (stem.StartsWith("COM", StringComparison.Ordinal) ||
+                stem.StartsWith("LPT", StringComparison.Ordinal)) && stem[3] is >= '1' and <= '9');
+        if (!Regex.IsMatch(WorkerId, @"\A[A-Za-z0-9_.-]{1,120}\z") ||
+            WorkerId.EndsWith(".", StringComparison.Ordinal) || reserved)
+            throw new ArgumentException("ワーカー ID は半角英数字・_・-・. の 1～120 文字で指定してください。末尾のドットと予約名（CON / PRN / AUX / NUL / COM1～9 / LPT1～9、大小文字・拡張子を問わず）は使用できません。");
         if (Encoding.UTF8.GetByteCount(Name) is < 1 or > 160)
             throw new ArgumentException("表示名は UTF-8 で 1～160 バイトにしてください。");
         try

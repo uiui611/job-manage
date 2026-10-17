@@ -1,0 +1,246 @@
+[
+  {
+    "id": "worker",
+    "valid": true
+  },
+  {
+    "id": "a",
+    "valid": true
+  },
+  {
+    "id": "worker-01_A.b",
+    "valid": true
+  },
+  {
+    "id": ".worker",
+    "valid": true
+  },
+  {
+    "id": "CONSOLE",
+    "valid": true
+  },
+  {
+    "id": "COM0",
+    "valid": true
+  },
+  {
+    "id": "COM10",
+    "valid": true
+  },
+  {
+    "id": "LPT0",
+    "valid": true
+  },
+  {
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "valid": true
+  },
+  {
+    "id": "",
+    "valid": false
+  },
+  {
+    "id": ".",
+    "valid": false
+  },
+  {
+    "id": "..",
+    "valid": false
+  },
+  {
+    "id": "worker.",
+    "valid": false
+  },
+  {
+    "id": "CON",
+    "valid": false
+  },
+  {
+    "id": "con.txt",
+    "valid": false
+  },
+  {
+    "id": "PRN",
+    "valid": false
+  },
+  {
+    "id": "AUX",
+    "valid": false
+  },
+  {
+    "id": "NUL",
+    "valid": false
+  },
+  {
+    "id": "nul.json",
+    "valid": false
+  },
+  {
+    "id": "worker name",
+    "valid": false
+  },
+  {
+    "id": "日本語",
+    "valid": false
+  },
+  {
+    "id": "a/b",
+    "valid": false
+  },
+  {
+    "id": "a\\b",
+    "valid": false
+  },
+  {
+    "id": "worker\n",
+    "valid": false
+  },
+  {
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "valid": false
+  },
+  {
+    "id": "COM1",
+    "valid": false
+  },
+  {
+    "id": "com1.txt",
+    "valid": false
+  },
+  {
+    "id": "COM2",
+    "valid": false
+  },
+  {
+    "id": "com2.txt",
+    "valid": false
+  },
+  {
+    "id": "COM3",
+    "valid": false
+  },
+  {
+    "id": "com3.txt",
+    "valid": false
+  },
+  {
+    "id": "COM4",
+    "valid": false
+  },
+  {
+    "id": "com4.txt",
+    "valid": false
+  },
+  {
+    "id": "COM5",
+    "valid": false
+  },
+  {
+    "id": "com5.txt",
+    "valid": false
+  },
+  {
+    "id": "COM6",
+    "valid": false
+  },
+  {
+    "id": "com6.txt",
+    "valid": false
+  },
+  {
+    "id": "COM7",
+    "valid": false
+  },
+  {
+    "id": "com7.txt",
+    "valid": false
+  },
+  {
+    "id": "COM8",
+    "valid": false
+  },
+  {
+    "id": "com8.txt",
+    "valid": false
+  },
+  {
+    "id": "COM9",
+    "valid": false
+  },
+  {
+    "id": "com9.txt",
+    "valid": false
+  },
+  {
+    "id": "LPT1",
+    "valid": false
+  },
+  {
+    "id": "lpt1.txt",
+    "valid": false
+  },
+  {
+    "id": "LPT2",
+    "valid": false
+  },
+  {
+    "id": "lpt2.txt",
+    "valid": false
+  },
+  {
+    "id": "LPT3",
+    "valid": false
+  },
+  {
+    "id": "lpt3.txt",
+    "valid": false
+  },
+  {
+    "id": "LPT4",
+    "valid": false
+  },
+  {
+    "id": "lpt4.txt",
+    "valid": false
+  },
+  {
+    "id": "LPT5",
+    "valid": false
+  },
+  {
+    "id": "lpt5.txt",
+    "valid": false
+  },
+  {
+    "id": "LPT6",
+    "valid": false
+  },
+  {
+    "id": "lpt6.txt",
+    "valid": false
+  },
+  {
+    "id": "LPT7",
+    "valid": false
+  },
+  {
+    "id": "lpt7.txt",
+    "valid": false
+  },
+  {
+    "id": "LPT8",
+    "valid": false
+  },
+  {
+    "id": "lpt8.txt",
+    "valid": false
+  },
+  {
+    "id": "LPT9",
+    "valid": false
+  },
+  {
+    "id": "lpt9.txt",
+    "valid": false
+  }
+]
