@@ -145,10 +145,7 @@ Windows 用は `job-worker.exe` をホストまたは Windows Sandbox 内で直�
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cd web
-bun install --frozen-lockfile
-bun run format:check
-bun run build
+(cd web && bun install --frozen-lockfile && bun run format:check && bun run build)
 ```
 
 接続できる試験環境と `env=base` タグの実ワーカーを用意して、以下を実行します。
