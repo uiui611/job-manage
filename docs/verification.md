@@ -8,10 +8,9 @@
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cd web
-bun install --frozen-lockfile
-bun run format:check
-bun run build
+bun install --cwd ./web --frozen-lockfile
+bun run --cwd ./web format:check
+bun run --cwd ./web build
 ```
 
 Rust のテストはプロトコル、サブパスのルート・アセット・リダイレクト、ワーカーのキャンセル・タイムアウト・切断・無応答時の子孫プロセス停止、ログの上限、結果ファイル・symlink 拒否、転送 URL の TLS 制約を対象にします。ワーカーの実プロセス試験は Linux と Windows で実行します。Windows はさらに、外部 Node/Python、日本語・空白パス、正常終了・強制終了時の子孫停止を確認します。[Windows の手順](windows-worker.md) を参照してください。管理画面の build には TypeScript の型検査を含みます。
